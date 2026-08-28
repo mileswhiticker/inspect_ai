@@ -1110,6 +1110,53 @@ def test_google_batch_with_thinking_model():
         signal.signal(signal.SIGALRM, old_handler)
 
 
+@pytest.mark.parametrize(
+    "system_instruction",
+    [
+        # extract_system_message_as_parts() collapses all-text parts to str
+        ["You are helpful."],
+        "You are helpful.",
+        [Part(text="You are helpful.")],
+    ],
+    ids=["list_of_str", "str", "list_of_part"],
+)
+def test_google_batch_system_instruction_is_content_object(
+    system_instruction: Any,
+) -> None:
+    """The batch API rejects the whole file unless system_instruction is an object."""
+    from google.genai.types import GenerateContentConfig
+
+    from inspect_ai.model._providers._google_batch import batch_request_dict
+
+    request = batch_request_dict(
+        GenerateContentConfig(system_instruction=system_instruction),
+        [Content(role="user", parts=[Part(text="hi")])],
+    )
+
+    assert request["system_instruction"] == {"parts": [{"text": "You are helpful."}]}
+
+
+def test_google_batch_system_instruction_preserves_non_text_parts() -> None:
+    from google.genai.types import FileData, GenerateContentConfig
+
+    from inspect_ai.model._providers._google_batch import batch_request_dict
+
+    parts = [
+        Part(text="Describe this."),
+        Part(
+            file_data=FileData(file_uri="https://example/x.png", mime_type="image/png")
+        ),
+    ]
+    request = batch_request_dict(
+        GenerateContentConfig(system_instruction=parts),
+        [Content(role="user", parts=[Part(text="hi")])],
+    )
+
+    assert request["system_instruction"] == Content(parts=parts).model_dump(
+        exclude_none=True
+    )
+
+
 def _make_batcher_and_batch(job_state: JobState) -> tuple:
     from datetime import datetime, timezone
 

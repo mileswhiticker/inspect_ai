@@ -46,6 +46,30 @@ _SDK_ONLY_FIELDS = {
 }
 
 
+def _as_content_dict(value: Any) -> Any:
+    """Normalize a system_instruction value to the REST Content shape.
+
+    GenerateContentConfig accepts a str, a list of parts, or a Content, and the
+    live SDK normalizes those into a Content before sending. The batch path builds
+    the REST request by hand, so it has to do that itself: the REST schema requires
+    an object, and emitting the bare list that `extract_system_message_as_parts()`
+    returns makes the batch API reject the whole file as invalid JSON.
+
+    Text-only system messages arrive as a list of plain strings (that function
+    collapses all-text parts to str to work around an open-telemetry issue), so
+    those are wrapped back into `{"text": ...}` parts. Anything else is already a
+    dumped Part dict and passes through.
+    """
+    if isinstance(value, str):
+        return {"parts": [{"text": value}]}
+    elif isinstance(value, list):
+        return {
+            "parts": [{"text": p} if isinstance(p, str) else p for p in value],
+        }
+    else:
+        return value
+
+
 def batch_request_dict(
     config: GenerateContentConfig, contents: list[Content]
 ) -> dict[str, Any]:
@@ -60,6 +84,10 @@ def batch_request_dict(
     # see _REQUEST_TOP_LEVEL_FIELDS.
     params = config.model_dump(exclude_none=True)
     top_level = {k: v for k, v in params.items() if k in _REQUEST_TOP_LEVEL_FIELDS}
+    if "system_instruction" in top_level:
+        top_level["system_instruction"] = _as_content_dict(
+            top_level["system_instruction"]
+        )
     generation_config = {
         k: v
         for k, v in params.items()
